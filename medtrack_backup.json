@@ -1,0 +1,30 @@
+{
+  "medicines": [
+    {
+      "id": 1,
+      "shopId": 1,
+      "name": "Paracetamol 500mg (Sample)",
+      "barcode": "8901234567890",
+      "manufacturer": "Cipla Health",
+      "schedule": "OTC",
+      "unitPrice": 15,
+      "reorderThreshold": 10,
+      "createdAt": "2026-08-30 07:22:21"
+    }
+  ],
+  "batches": [
+    {
+      "id": 1,
+      "shopId": 1,
+      "medicineId": 1,
+      "batchNumber": "BAT-2026-A",
+      "quantity": 100,
+      "expiryDate": "2028-12-31",
+      "supplier": "Apex Med Wholesale",
+      "costPrice": 10,
+      "receivedDate": "2026-08-01"
+    }
+  ],
+  "wastageLogs": [],
+  "auditLogs": []
+}
