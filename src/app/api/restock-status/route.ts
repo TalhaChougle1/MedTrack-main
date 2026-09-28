@@ -29,7 +29,7 @@ export async function GET() {
       })
       .from(medicines)
       .leftJoin(batches, eq(medicines.id, batches.medicineId))
-      .where(eq(medicines.shopId, shopId))
+      .where(and(eq(medicines.shopId, shopId), eq(medicines.isArchived, false)))
       .groupBy(
         medicines.id,
         medicines.name,

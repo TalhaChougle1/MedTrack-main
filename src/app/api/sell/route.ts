@@ -67,6 +67,13 @@ export async function POST(req: Request) {
       );
     }
 
+    if (med.isArchived) {
+      return NextResponse.json(
+        { error: `Cannot sell or dispense archived medicine '${med.name}'. Please restore it from the archive first.` },
+        { status: 400 }
+      );
+    }
+
     const todayStr = new Date().toISOString().split("T")[0];
 
     // 1. Fetch all batches for medicine with quantity > 0 and shopId matching

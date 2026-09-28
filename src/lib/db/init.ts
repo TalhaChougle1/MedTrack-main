@@ -40,6 +40,8 @@ export async function initDatabase() {
         schedule TEXT NOT NULL DEFAULT 'OTC',
         unit_price REAL NOT NULL DEFAULT 0,
         reorder_threshold INTEGER NOT NULL DEFAULT 10,
+        is_archived INTEGER NOT NULL DEFAULT 0,
+        archived_at DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );`,
       `CREATE TABLE IF NOT EXISTS batches (
@@ -184,6 +186,15 @@ export async function initDatabase() {
     try {
       await client.execute("ALTER TABLE sales ADD COLUMN doctor_name TEXT;");
     } catch { /* Column may already exist */ }
+    try {
+      await client.execute("ALTER TABLE medicines ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0;");
+    } catch { /* Column may already exist */ }
+    try {
+      await client.execute("ALTER TABLE medicines ADD COLUMN archived_at TEXT;");
+    } catch { /* Column may already exist */ }
+    try {
+      await client.execute("CREATE INDEX IF NOT EXISTS idx_medicines_archived ON medicines(shop_id, is_archived);");
+    } catch { /* Index may already exist */ }
 
     // Create index on sales.patient_id only after the column is guaranteed to exist
     try {

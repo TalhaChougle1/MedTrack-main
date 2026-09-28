@@ -23,6 +23,14 @@ export async function DELETE(
     return NextResponse.json({ error: "Invalid batch ID" }, { status: 400 });
   }
 
+  const userRole = session.user.role;
+  if (userRole !== "owner" && userRole !== "admin") {
+    return NextResponse.json(
+      { error: "Forbidden. Only authorized administrators can delete stock batches." },
+      { status: 403 }
+    );
+  }
+
   try {
     // 1. Verify batch exists and belongs to this shop
     const [batch] = await db
@@ -41,14 +49,14 @@ export async function DELETE(
       return NextResponse.json({ error: "Batch not found in your inventory" }, { status: 404 });
     }
 
-    // 2. Unlink wastage logs referencing this batch
+    // 2. Unlink wastage logs referencing this batch (preserve historical audit durability)
     await db
       .update(wastageLogs)
       .set({ batchId: null })
       .where(and(eq(wastageLogs.shopId, shopId), eq(wastageLogs.batchId, batchId)))
       .catch(() => {});
 
-    // 3. Delete batch record
+    // 3. Delete batch record (parent medicine remains intact)
     await db.delete(batches).where(and(eq(batches.id, batchId), eq(batches.shopId, shopId)));
 
     // 4. Immediately sync memory cache & snapshot
@@ -65,6 +73,8 @@ export async function DELETE(
         medicineName: batch.medicineName,
         batchNumber: batch.batchNumber,
         deletedQuantity: batch.quantity,
+        deletedBy: session.user.name || "Administrator",
+        userRole,
       }),
     });
 

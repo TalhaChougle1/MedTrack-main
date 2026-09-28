@@ -38,6 +38,7 @@ export async function GET(req: Request) {
       .where(
         and(
           eq(medicines.shopId, shopId),
+          eq(medicines.isArchived, false),
           or(
             like(medicines.name, pattern),
             like(medicines.barcode, pattern),

@@ -33,6 +33,8 @@ export const medicines = sqliteTable("medicines", {
   schedule: text("schedule").default("OTC").notNull(), // OTC | H | H1 | X
   unitPrice: real("unit_price").default(0).notNull(),
   reorderThreshold: integer("reorder_threshold").default(10).notNull(),
+  isArchived: integer("is_archived", { mode: "boolean" }).default(false).notNull(),
+  archivedAt: text("archived_at"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 

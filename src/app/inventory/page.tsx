@@ -18,6 +18,8 @@ import {
   Bell,
   Save,
   ArrowLeft,
+  Archive,
+  RotateCcw,
 } from "lucide-react";
 import { autoClassifySchedule } from "@/lib/scheduleClassifier";
 import BatchDispenseModal from "@/components/BatchDispenseModal";
@@ -134,11 +136,16 @@ function InventoryInner() {
   const [scheduleFilter, setScheduleFilter] = useState("ALL");
   const [expandedMedId, setExpandedMedId] = useState<number | null>(null);
 
+  // Role & Tab state
+  const isAdmin = session?.user?.role === "owner" || session?.user?.role === "admin";
+  const [catalogTab, setCatalogTab] = useState<"active" | "archived">("active");
+
   // Dispense Modal (BatchDispenseModal handles FEFO internally)
   const [dispenseMedModal, setDispenseMedModal] = useState<any | null>(null);
 
-  // Delete Confirm
+  // Confirmation Modals (Delete & Archive)
   const [deleteConfirmMed, setDeleteConfirmMed] = useState<any>(null);
+  const [archiveConfirmMed, setArchiveConfirmMed] = useState<any>(null);
   const [deleteConfirmBatch, setDeleteConfirmBatch] = useState<any>(null);
 
   // Add Medicine Modal
@@ -227,7 +234,7 @@ function InventoryInner() {
     setLoading(true);
     try {
       const [medRes, batchRes] = await Promise.all([
-        fetch("/api/medicines"),
+        fetch("/api/medicines?includeArchived=true"),
         fetch("/api/batches"),
       ]);
       if (medRes.ok) setMedicinesList(await medRes.json());
@@ -307,6 +314,9 @@ function InventoryInner() {
       const data = await res.json();
       if (!res.ok) {
         setErrorMsg(data.error || "Failed to delete medicine.");
+        if (res.status === 409 && data.salesCount) {
+          setDeleteConfirmMed((prev: any) => ({ ...prev, salesCount: data.salesCount }));
+        }
       } else {
         setSuccessMsg(data.message || "Medicine deleted successfully.");
         setDeleteConfirmMed(null);
@@ -315,6 +325,50 @@ function InventoryInner() {
       }
     } catch {
       setErrorMsg("Error connecting to server to delete medicine.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleArchiveMedicine = async (medId: number) => {
+    setActionLoading(true);
+    setErrorMsg("");
+    setSuccessMsg("");
+    try {
+      const res = await fetch(`/api/medicines/${medId}/archive`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMsg(data.error || "Failed to archive medicine.");
+      } else {
+        setSuccessMsg(data.message || "Medicine archived successfully.");
+        setArchiveConfirmMed(null);
+        setDeleteConfirmMed(null);
+        fetchInventoryData();
+        window.dispatchEvent(new Event("medtrack:refresh"));
+      }
+    } catch {
+      setErrorMsg("Error connecting to server to archive medicine.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRestoreMedicine = async (medId: number) => {
+    setActionLoading(true);
+    setErrorMsg("");
+    setSuccessMsg("");
+    try {
+      const res = await fetch(`/api/medicines/${medId}/restore`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMsg(data.error || "Failed to restore medicine.");
+      } else {
+        setSuccessMsg(data.message || "Medicine restored to active stock successfully.");
+        fetchInventoryData();
+        window.dispatchEvent(new Event("medtrack:refresh"));
+      }
+    } catch {
+      setErrorMsg("Error connecting to server to restore medicine.");
     } finally {
       setActionLoading(false);
     }
@@ -511,11 +565,17 @@ function InventoryInner() {
   };
 
   // ── Filtered medicines ───────────────────────────────────────────────────────
-  const filteredMeds = medicinesList.filter((m) => {
+  const activeMedicines = medicinesList.filter((m) => !m.isArchived);
+  const archivedMedicines = medicinesList.filter((m) => m.isArchived);
+  const currentTabMedicines = catalogTab === "archived" ? archivedMedicines : activeMedicines;
+
+  const filteredMeds = currentTabMedicines.filter((m) => {
+    const q = searchQuery.toLowerCase().trim();
     const matchesSearch =
-      m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.manufacturer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (m.barcode && m.barcode.includes(searchQuery));
+      !q ||
+      m.name.toLowerCase().includes(q) ||
+      m.manufacturer.toLowerCase().includes(q) ||
+      (m.barcode && m.barcode.toLowerCase().includes(q));
     const matchesSchedule =
       scheduleFilter === "ALL" || m.schedule === scheduleFilter;
     return matchesSearch && matchesSchedule;
@@ -578,6 +638,39 @@ function InventoryInner() {
           <span>{successMsg}</span>
         </div>
       )}
+
+      {/* Catalog Tabs: Active Stock vs Archived */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+        <button
+          onClick={() => setCatalogTab("active")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
+            catalogTab === "active"
+              ? "bg-[#1E3A5F] text-white shadow-xs"
+              : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+          }`}
+        >
+          <Boxes className="w-3.5 h-3.5" />
+          <span>Active Stock</span>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${catalogTab === "active" ? "bg-teal-500/30 text-teal-100" : "bg-slate-100 text-slate-600"}`}>
+            {activeMedicines.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setCatalogTab("archived")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
+            catalogTab === "archived"
+              ? "bg-[#1E3A5F] text-white shadow-xs"
+              : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+          }`}
+        >
+          <Archive className="w-3.5 h-3.5" />
+          <span>Archived Catalog</span>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${catalogTab === "archived" ? "bg-amber-500/30 text-amber-100" : "bg-slate-100 text-slate-600"}`}>
+            {archivedMedicines.length}
+          </span>
+        </button>
+      </div>
 
       {/* Filter & Search Bar */}
       <div className="flex flex-col sm:flex-row items-center gap-3">
@@ -713,44 +806,101 @@ function InventoryInner() {
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                      {/* Dispense button — opens BatchDispenseModal which handles FEFO */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDispenseMedModal(med);
-                        }}
-                        className="px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold border border-teal-200 flex items-center gap-1 cursor-pointer"
-                        title="Dispense Medicine (FEFO)"
-                      >
-                        <ShoppingCart className="w-3.5 h-3.5 text-teal-600" />
-                        <span>Dispense</span>
-                      </button>
+                    <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                      {!med.isArchived ? (
+                        <>
+                          {/* Dispense button — opens BatchDispenseModal which handles FEFO */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDispenseMedModal(med);
+                            }}
+                            className="px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold border border-teal-200 flex items-center gap-1 cursor-pointer"
+                            title="Dispense Medicine (FEFO)"
+                          >
+                            <ShoppingCart className="w-3.5 h-3.5 text-teal-600" />
+                            <span>Dispense</span>
+                          </button>
 
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedMedForBatch(med);
-                          setErrorMsg("");
-                          setAddBatchOpen(true);
-                        }}
-                        className="px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-teal-800 text-xs font-bold border border-slate-200 flex items-center gap-1 cursor-pointer"
-                      >
-                        <PlusCircle className="w-3.5 h-3.5 text-teal-600" />
-                        <span>Add Batch</span>
-                      </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedMedForBatch(med);
+                              setErrorMsg("");
+                              setAddBatchOpen(true);
+                            }}
+                            className="px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-teal-800 text-xs font-bold border border-slate-200 flex items-center gap-1 cursor-pointer"
+                          >
+                            <PlusCircle className="w-3.5 h-3.5 text-teal-600" />
+                            <span>Add Batch</span>
+                          </button>
 
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleteConfirmMed(med);
-                        }}
-                        className="px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-800 text-xs font-bold border border-rose-200 flex items-center gap-1 cursor-pointer transition-colors"
-                        title="Delete Medicine & Batches"
-                      >
-                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                        <span>Delete</span>
-                      </button>
+                          {isAdmin && (
+                            <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setArchiveConfirmMed(med);
+                                }}
+                                className="px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-200 flex items-center gap-1 cursor-pointer transition-colors"
+                                title="Archive Medicine"
+                              >
+                                <Archive className="w-3.5 h-3.5 text-amber-600" />
+                                <span>Archive</span>
+                              </button>
+
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteConfirmMed(med);
+                                }}
+                                className="px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-800 text-xs font-bold border border-rose-200 flex items-center gap-1 cursor-pointer transition-colors"
+                                title="Delete Medicine"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                <span>Delete</span>
+                              </button>
+                            </>
+                          )}
+                        </>
+                      ) : (
+                        /* Archived medicine actions */
+                        <>
+                          <span className="px-2.5 py-1 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 text-xs font-extrabold flex items-center gap-1">
+                            <Archive className="w-3.5 h-3.5 text-amber-700" />
+                            <span>Archived</span>
+                          </span>
+
+                          {isAdmin && (
+                            <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRestoreMedicine(med.id);
+                                }}
+                                disabled={actionLoading}
+                                className="px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300 flex items-center gap-1 cursor-pointer transition-colors"
+                                title="Restore Medicine to Active Inventory"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Restore</span>
+                              </button>
+
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteConfirmMed(med);
+                                }}
+                                className="px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-800 text-xs font-bold border border-rose-200 flex items-center gap-1 cursor-pointer transition-colors"
+                                title="Delete Medicine"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                <span>Delete</span>
+                              </button>
+                            </>
+                          )}
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -826,6 +976,7 @@ function InventoryInner() {
                                 <p>Supplier: {b.supplier}</p>
                                 <div className="flex items-center justify-between pt-1 border-t border-slate-100">
                                   <p>Cost Price: ₹{b.costPrice}/unit</p>
+                                {isAdmin && (
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -840,6 +991,7 @@ function InventoryInner() {
                                     <Trash2 className="w-3 h-3 text-rose-500" />
                                     <span>Delete Batch</span>
                                   </button>
+                                )}
                                 </div>
                               </div>
                             </div>
@@ -1003,7 +1155,7 @@ function InventoryInner() {
               /* ── STEP 1: Medicine Details ── */
               <div className="space-y-4">
                 {/* Quick shortcut: select existing medicine to add batch */}
-                {medicinesList.length > 0 && (
+                {medicinesList.filter((m) => !m.isArchived).length > 0 && (
                   <div className="p-3 rounded-2xl bg-teal-50 border border-teal-200 space-y-1.5 text-xs shadow-2xs">
                     <label className="block text-[#1E3A5F] font-extrabold text-xs">
                       Choose Existing Stock Medicine (Auto-Fills All Details):
@@ -1026,11 +1178,13 @@ function InventoryInner() {
                       <option value="">
                         -- Or Choose Existing Medicine to Add Batch --
                       </option>
-                      {medicinesList.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name} • {m.manufacturer} (Schedule {m.schedule})
-                        </option>
-                      ))}
+                      {medicinesList
+                        .filter((m) => !m.isArchived)
+                        .map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} • {m.manufacturer} (Schedule {m.schedule})
+                          </option>
+                        ))}
                     </select>
                   </div>
                 )}
@@ -1340,7 +1494,7 @@ function InventoryInner() {
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div className="flex items-center gap-2 text-rose-700">
                 <Trash2 className="w-5 h-5 text-rose-600" />
-                <h3 className="text-base font-extrabold">Confirm Delete Medicine</h3>
+                <h3 className="text-base font-extrabold">Delete Medicine?</h3>
               </div>
               <button
                 onClick={() => setDeleteConfirmMed(null)}
@@ -1349,23 +1503,128 @@ function InventoryInner() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-900 text-xs space-y-2">
-              <p className="font-bold text-sm">
-                Are you sure you want to delete &apos;{deleteConfirmMed.name}&apos;?
+
+            {deleteConfirmMed.salesCount > 0 ? (
+              /* When historical transactions exist: Permanent deletion blocked, offer Archive */
+              <div className="space-y-3">
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-amber-800 text-sm">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Permanent Deletion Blocked</span>
+                  </div>
+                  <p className="text-slate-700">
+                    <strong>&apos;{deleteConfirmMed.name}&apos;</strong> has{" "}
+                    <strong>{deleteConfirmMed.salesCount} historical sales record(s)</strong>.
+                  </p>
+                  <p className="text-slate-600 text-[11px]">
+                    To comply with healthcare audit regulations and financial accounting standards, medicines with recorded sales cannot be permanently deleted.
+                  </p>
+                  <div className="pt-2 border-t border-amber-200 text-amber-900 font-semibold text-[11px]">
+                    💡 <strong>Recommended Action:</strong> You can <strong>Archive</strong> this medicine instead. This safely removes it from active inventory, sales checkout, and restock alerts while preserving complete historical records.
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 text-xs font-bold pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteConfirmMed(null)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={() => handleArchiveMedicine(deleteConfirmMed.id)}
+                    className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50"
+                  >
+                    <Archive className="w-4 h-4" />
+                    <span>{actionLoading ? "Archiving..." : "Archive Medicine Instead"}</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* When NO historical transactions exist: Safe to permanently delete */
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-900 text-xs space-y-2.5">
+                  <p className="font-extrabold text-sm text-[#1E3A5F]">
+                    {deleteConfirmMed.name} ({deleteConfirmMed.manufacturer})
+                  </p>
+                  <p className="text-rose-800 font-medium">
+                    This action will permanently remove this medicine and its associated data. This cannot be undone.
+                  </p>
+                  <div className="bg-white/80 p-2.5 rounded-xl border border-rose-200 text-slate-700 space-y-1 text-[11px]">
+                    <p>
+                      <strong>Affected Stock:</strong>{" "}
+                      {deleteConfirmMed.batchCount || 0} batches (
+                      {deleteConfirmMed.totalStock || 0} total units) will be permanently deleted.
+                    </p>
+                    <p>
+                      <strong>Orphan Protection:</strong> All associated batch records and logs will be safely purged.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 text-xs font-bold pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteConfirmMed(null)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={() => handleDeleteMedicine(deleteConfirmMed.id)}
+                    className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>{actionLoading ? "Deleting..." : "Delete Permanently"}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Archive Medicine Confirmation ── */}
+      {archiveConfirmMed && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2 text-amber-700">
+                <Archive className="w-5 h-5 text-amber-600" />
+                <h3 className="text-base font-extrabold">Archive Medicine?</h3>
+              </div>
+              <button
+                onClick={() => setArchiveConfirmMed(null)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-2.5">
+              <p className="font-extrabold text-sm text-[#1E3A5F]">
+                {archiveConfirmMed.name} ({archiveConfirmMed.manufacturer})
               </p>
-              <p className="text-rose-700">
-                This will permanently remove this medicine and all its active stock
-                batches ({deleteConfirmMed.batchCount || 0} batches,{" "}
-                {deleteConfirmMed.totalStock || 0} total units) from your database.
+              <p className="text-slate-700">
+                Archiving this medicine will immediately remove it from active inventory, sales checkout, and low-stock alerts.
               </p>
-              <p className="font-extrabold text-[11px] text-rose-800 uppercase tracking-wide">
-                ⚡ This action cannot be undone.
-              </p>
+              <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200 text-slate-600 space-y-1 text-[11px]">
+                <p>
+                  ✓ <strong>Preserves History:</strong> All past sales, invoices, and audit logs remain intact.
+                </p>
+                <p>
+                  ✓ <strong>Reversible:</strong> Authorized administrators can restore this medicine at any time.
+                </p>
+              </div>
             </div>
             <div className="flex justify-end gap-3 text-xs font-bold pt-2">
               <button
                 type="button"
-                onClick={() => setDeleteConfirmMed(null)}
+                onClick={() => setArchiveConfirmMed(null)}
                 className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
               >
                 Cancel
@@ -1373,11 +1632,11 @@ function InventoryInner() {
               <button
                 type="button"
                 disabled={actionLoading}
-                onClick={() => handleDeleteMedicine(deleteConfirmMed.id)}
-                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50"
+                onClick={() => handleArchiveMedicine(archiveConfirmMed.id)}
+                className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50"
               >
-                <Trash2 className="w-4 h-4" />
-                <span>{actionLoading ? "Deleting..." : "Delete Medicine"}</span>
+                <Archive className="w-4 h-4" />
+                <span>{actionLoading ? "Archiving..." : "Archive Medicine"}</span>
               </button>
             </div>
           </div>
@@ -1391,7 +1650,7 @@ function InventoryInner() {
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div className="flex items-center gap-2 text-rose-700">
                 <Trash2 className="w-5 h-5 text-rose-600" />
-                <h3 className="text-base font-extrabold">Confirm Delete Batch</h3>
+                <h3 className="text-base font-extrabold">Delete Batch?</h3>
               </div>
               <button
                 onClick={() => setDeleteConfirmBatch(null)}
@@ -1409,6 +1668,10 @@ function InventoryInner() {
                 {deleteConfirmBatch.quantity} units) for {deleteConfirmBatch.medicineName}{" "}
                 from your database.
               </p>
+              <div className="bg-white/80 p-2.5 rounded-xl border border-rose-200 text-slate-700 text-[11px] space-y-0.5">
+                <p>✓ The parent medicine &apos;{deleteConfirmBatch.medicineName}&apos; will NOT be deleted.</p>
+                <p>✓ Inventory stock and FEFO order will be recalculated automatically.</p>
+              </div>
             </div>
             <div className="flex justify-end gap-3 text-xs font-bold pt-2">
               <button

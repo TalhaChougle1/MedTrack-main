@@ -155,6 +155,13 @@ export default function AuditLogsPage() {
       case "ORDER_CREATE":
       case "STATUS_UPDATE":
         return "bg-purple-100 text-purple-800 border-purple-300";
+      case "MEDICINE_DELETE":
+      case "BATCH_DELETE":
+        return "bg-rose-100 text-rose-800 border-rose-300";
+      case "MEDICINE_ARCHIVE":
+        return "bg-amber-100 text-amber-800 border-amber-300";
+      case "MEDICINE_RESTORE":
+        return "bg-emerald-100 text-emerald-800 border-emerald-300";
       default:
         return "bg-slate-100 text-slate-700 border-slate-200";
     }
@@ -282,6 +289,10 @@ export default function AuditLogsPage() {
                 <option value="SESSION_TIMEOUT">SESSION_TIMEOUT</option>
                 <option value="ORDER_CREATE">ORDER_CREATE</option>
                 <option value="STATUS_UPDATE">STATUS_UPDATE</option>
+                <option value="MEDICINE_DELETE">MEDICINE_DELETE (Removal)</option>
+                <option value="BATCH_DELETE">BATCH_DELETE (Batch Removal)</option>
+                <option value="MEDICINE_ARCHIVE">MEDICINE_ARCHIVE (Archival)</option>
+                <option value="MEDICINE_RESTORE">MEDICINE_RESTORE (Restoration)</option>
               </select>
 
               {/* Date Filters */}

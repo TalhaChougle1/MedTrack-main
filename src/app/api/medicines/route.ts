@@ -6,13 +6,24 @@ import { eq, and, sql } from "drizzle-orm";
 import { autoClassifySchedule } from "@/lib/scheduleClassifier";
 import { syncAndRestoreDatabase, persistCurrentDatabaseState } from "@/lib/db/storeSync";
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getAuthSession();
   const shopId = session?.user?.shopId || 1;
 
   try {
     await syncAndRestoreDatabase();
-    // Select medicines and calculate total stock & batch count per medicine
+    const { searchParams } = new URL(req.url);
+    const statusParam = searchParams.get("status") || "active";
+    const includeArchived = searchParams.get("includeArchived") === "true";
+
+    const whereClause =
+      statusParam === "archived"
+        ? and(eq(medicines.shopId, shopId), eq(medicines.isArchived, true))
+        : statusParam === "all" || includeArchived
+        ? eq(medicines.shopId, shopId)
+        : and(eq(medicines.shopId, shopId), eq(medicines.isArchived, false));
+
+    // Select medicines and calculate total stock, batch count & sales count per medicine
     const medList = await db
       .select({
         id: medicines.id,
@@ -23,13 +34,16 @@ export async function GET() {
         schedule: medicines.schedule,
         unitPrice: sql<number>`COALESCE(NULLIF(${medicines.unitPrice}, 0), MAX(${batches.costPrice}), 0)`,
         reorderThreshold: medicines.reorderThreshold,
+        isArchived: medicines.isArchived,
+        archivedAt: medicines.archivedAt,
         createdAt: medicines.createdAt,
         totalStock: sql<number>`COALESCE(SUM(${batches.quantity}), 0)`,
         batchCount: sql<number>`COUNT(${batches.id})`,
+        salesCount: sql<number>`(SELECT COUNT(*) FROM sales WHERE sales.medicine_id = ${medicines.id} AND sales.shop_id = ${medicines.shopId})`,
       })
       .from(medicines)
       .leftJoin(batches, eq(medicines.id, batches.medicineId))
-      .where(eq(medicines.shopId, shopId))
+      .where(whereClause)
       .groupBy(
         medicines.id,
         medicines.shopId,
@@ -39,6 +53,8 @@ export async function GET() {
         medicines.schedule,
         medicines.unitPrice,
         medicines.reorderThreshold,
+        medicines.isArchived,
+        medicines.archivedAt,
         medicines.createdAt
       )
       .orderBy(medicines.name);
@@ -48,6 +64,9 @@ export async function GET() {
       unitPrice: Number(m.unitPrice) || 0,
       totalStock: Number(m.totalStock) || 0,
       batchCount: Number(m.batchCount) || 0,
+      salesCount: Number(m.salesCount) || 0,
+      isArchived: Boolean(m.isArchived),
+      archivedAt: m.archivedAt || null,
     }));
 
     return NextResponse.json(formatted);

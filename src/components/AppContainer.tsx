@@ -21,7 +21,7 @@ export default function AppContainer({ children }: { children: React.ReactNode }
       </main>
       <footer className="border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-500 shadow-xs w-full">
         <p className="px-4">
-          MedTrack v2.0 • NEP Field Project Topic #23 • Authored by Talha Zahoor Ahmed Chougle
+          MedTrack Pharmacy Inventory & Sales Management System
         </p>
       </footer>
     </>

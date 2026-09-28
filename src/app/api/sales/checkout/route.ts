@@ -103,6 +103,13 @@ export async function POST(req: Request) {
         );
       }
 
+      if (med.isArchived) {
+        return NextResponse.json(
+          { error: `Cannot process sale for archived medicine '${med.name}'. Please restore it from the archive first.` },
+          { status: 400 }
+        );
+      }
+
       // Fetch batches for this medicine
       const allBatches = await db
         .select()
