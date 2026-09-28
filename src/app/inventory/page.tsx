@@ -17,6 +17,7 @@ import {
   ShoppingCart,
   Bell,
   Save,
+  ArrowLeft,
 } from "lucide-react";
 import { autoClassifySchedule } from "@/lib/scheduleClassifier";
 import BatchDispenseModal from "@/components/BatchDispenseModal";
@@ -142,6 +143,7 @@ function InventoryInner() {
 
   // Add Medicine Modal
   const [addMedOpen, setAddMedOpen] = useState(false);
+  const [showNewMedBatchDetails, setShowNewMedBatchDetails] = useState(false);
   const [newMedData, setNewMedData] = useState({
     name: "",
     manufacturer: "",
@@ -340,8 +342,9 @@ function InventoryInner() {
     }
   };
 
-  const handleAddMedicine = async (e: React.FormEvent) => {
+  const handleContinueToBatch = (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg("");
 
     if (!newMedData.name.trim()) {
       setErrorMsg("Medicine name is required.");
@@ -349,6 +352,36 @@ function InventoryInner() {
     }
     if (!newMedData.manufacturer.trim()) {
       setErrorMsg("Manufacturer is required.");
+      return;
+    }
+    if (newMedData.unitPrice !== "" && (isNaN(parseFloat(newMedData.unitPrice)) || parseFloat(newMedData.unitPrice) < 0)) {
+      setErrorMsg("Unit selling price must be a valid number (0 or greater).");
+      return;
+    }
+    if (newMedData.reorderThreshold !== "" && (isNaN(parseInt(newMedData.reorderThreshold, 10)) || parseInt(newMedData.reorderThreshold, 10) < 0)) {
+      setErrorMsg("Reorder threshold must be 0 or greater.");
+      return;
+    }
+
+    // Auto-prefill supplier if not manually entered
+    if (!newBatchData.supplier.trim() && newMedData.manufacturer.trim()) {
+      setNewBatchData((prev) => ({ ...prev, supplier: newMedData.manufacturer.trim() }));
+    }
+
+    setShowNewMedBatchDetails(true);
+  };
+
+  const handleAddMedicine = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!newMedData.name.trim()) {
+      setErrorMsg("Medicine name is required.");
+      setShowNewMedBatchDetails(false);
+      return;
+    }
+    if (!newMedData.manufacturer.trim()) {
+      setErrorMsg("Manufacturer is required.");
+      setShowNewMedBatchDetails(false);
       return;
     }
     if (!newBatchData.batchNumber.trim()) {
@@ -406,6 +439,7 @@ function InventoryInner() {
       } else {
         setSuccessMsg(`Medicine '${data.name}' and initial batch '${newBatchData.batchNumber.trim()}' registered successfully!`);
         setAddMedOpen(false);
+        setShowNewMedBatchDetails(false);
         setNewMedData({
           name: "",
           manufacturer: "",
@@ -521,6 +555,7 @@ function InventoryInner() {
               supplier: "",
               costPrice: "",
             });
+            setShowNewMedBatchDetails(false);
             setAddMedOpen(true);
           }}
           className="px-4 py-2.5 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
@@ -905,12 +940,20 @@ function InventoryInner() {
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">
           <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-lg p-4 sm:p-6 space-y-4 sm:space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <h3 className="text-lg font-extrabold text-[#1E3A5F]">
-                Register New Medicine
-              </h3>
+              <div>
+                <h3 className="text-lg font-extrabold text-[#1E3A5F]">
+                  Register New Medicine
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  {!showNewMedBatchDetails
+                    ? "Step 1 of 2: Medicine catalog information"
+                    : "Step 2 of 2: Initial batch & stock details"}
+                </p>
+              </div>
               <button
                 onClick={() => {
                   setAddMedOpen(false);
+                  setShowNewMedBatchDetails(false);
                   setNewMedData({
                     name: "",
                     manufacturer: "",
@@ -933,180 +976,268 @@ function InventoryInner() {
               </button>
             </div>
 
-            {/* Quick shortcut: select existing medicine to add batch */}
-            {medicinesList.length > 0 && (
-              <div className="p-3 rounded-2xl bg-teal-50 border border-teal-200 space-y-1.5 text-xs shadow-2xs">
-                <label className="block text-[#1E3A5F] font-extrabold text-xs">
-                  Choose Existing Stock Medicine (Auto-Fills All Details):
-                </label>
-                <select
-                  onChange={(e) => {
-                    const selectedId = e.target.value;
-                    const found = medicinesList.find(
-                      (m) => m.id.toString() === selectedId
-                    );
-                    if (found) {
-                      setAddMedOpen(false);
-                      setSelectedMedForBatch(found);
-                      setAddBatchOpen(true);
-                    }
-                  }}
-                  className="w-full bg-white border border-teal-300 rounded-xl px-3 py-2 text-slate-800 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
-                >
-                  <option value="">
-                    -- Or Choose Existing Medicine to Add Batch --
-                  </option>
-                  {medicinesList.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name} • {m.manufacturer} (Schedule {m.schedule})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <form onSubmit={handleAddMedicine} className="space-y-4 text-xs">
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">
-                  Medicine Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Paracetamol 500mg, Amoxicillin 250mg, Cefixime..."
-                  value={newMedData.name}
-                  onChange={(e) => {
-                    const nameVal = e.target.value;
-                    const autoDetected = autoClassifySchedule(nameVal);
-                    setNewMedData({
-                      ...newMedData,
-                      name: nameVal,
-                      schedule: autoDetected,
-                    });
-                  }}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 focus:border-teal-600 font-medium"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">
-                  Manufacturer *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Cipla Ltd"
-                  value={newMedData.manufacturer}
-                  onChange={(e) =>
-                    setNewMedData({ ...newMedData, manufacturer: e.target.value })
-                  }
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 focus:border-teal-600 font-medium"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">
-                    Barcode (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 8901234567890"
-                    value={newMedData.barcode}
-                    onChange={(e) =>
-                      setNewMedData({ ...newMedData, barcode: e.target.value })
-                    }
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:border-teal-600 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">
-                    Drug Schedule
-                  </label>
-                  <select
-                    value={newMedData.schedule}
-                    onChange={(e) =>
-                      setNewMedData({ ...newMedData, schedule: e.target.value })
-                    }
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:border-teal-600 font-semibold"
-                  >
-                    <option value="OTC">OTC (Over The Counter)</option>
-                    <option value="H">Schedule H</option>
-                    <option value="H1">Schedule H1</option>
-                    <option value="X">Schedule X</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">
-                    Unit Selling Price (₹)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="e.g. 15.00"
-                    value={newMedData.unitPrice}
-                    onChange={(e) =>
-                      setNewMedData({ ...newMedData, unitPrice: e.target.value })
-                    }
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:border-teal-600 font-medium"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">
-                    Reorder Threshold
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="e.g. 10"
-                    value={newMedData.reorderThreshold}
-                    onChange={(e) =>
-                      setNewMedData({
-                        ...newMedData,
-                        reorderThreshold: e.target.value,
-                      })
-                    }
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:border-teal-600 font-medium"
-                  />
-                </div>
-              </div>
-
-              {/* Batch Details Section */}
-              <div className="border-t border-slate-200 pt-3.5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-extrabold text-[#1E3A5F] uppercase tracking-wider flex items-center gap-1.5">
-                    <Boxes className="w-3.5 h-3.5 text-teal-600" />
-                    <span>Batch Details</span>
-                  </h4>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-teal-100 text-teal-800">
-                    Initial Stock Batch
-                  </span>
-                </div>
-
-                <BatchDetailsSection
-                  data={newBatchData}
-                  onChange={(field, val) =>
-                    setNewBatchData((prev) => ({ ...prev, [field]: val }))
-                  }
-                  supplierRequired={false}
-                  supplierPlaceholder={
-                    newMedData.manufacturer
-                      ? `e.g. ${newMedData.manufacturer} Distributor`
-                      : "e.g. Cipla Distributor / Local Pharma Vendor"
-                  }
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={actionLoading}
-                className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-700 font-bold text-white text-xs shadow-md transition-all cursor-pointer"
+            {/* Step Progress Indicator */}
+            <div className="flex items-center gap-2">
+              <div
+                className={`flex-1 py-1.5 px-3 rounded-xl text-center text-xs font-bold transition-all ${
+                  !showNewMedBatchDetails
+                    ? "bg-teal-600 text-white shadow-xs"
+                    : "bg-teal-50 text-teal-800 border border-teal-200"
+                }`}
               >
-                {actionLoading ? "Saving..." : "Save Medicine & Add Batch"}
-              </button>
-            </form>
+                1. Medicine Details
+              </div>
+              <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+              <div
+                className={`flex-1 py-1.5 px-3 rounded-xl text-center text-xs font-bold transition-all ${
+                  showNewMedBatchDetails
+                    ? "bg-teal-600 text-white shadow-xs"
+                    : "bg-slate-100 text-slate-400"
+                }`}
+              >
+                2. Batch Details
+              </div>
+            </div>
+
+            {!showNewMedBatchDetails ? (
+              /* ── STEP 1: Medicine Details ── */
+              <div className="space-y-4">
+                {/* Quick shortcut: select existing medicine to add batch */}
+                {medicinesList.length > 0 && (
+                  <div className="p-3 rounded-2xl bg-teal-50 border border-teal-200 space-y-1.5 text-xs shadow-2xs">
+                    <label className="block text-[#1E3A5F] font-extrabold text-xs">
+                      Choose Existing Stock Medicine (Auto-Fills All Details):
+                    </label>
+                    <select
+                      onChange={(e) => {
+                        const selectedId = e.target.value;
+                        const found = medicinesList.find(
+                          (m) => m.id.toString() === selectedId
+                        );
+                        if (found) {
+                          setAddMedOpen(false);
+                          setShowNewMedBatchDetails(false);
+                          setSelectedMedForBatch(found);
+                          setAddBatchOpen(true);
+                        }
+                      }}
+                      className="w-full bg-white border border-teal-300 rounded-xl px-3 py-2 text-slate-800 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+                    >
+                      <option value="">
+                        -- Or Choose Existing Medicine to Add Batch --
+                      </option>
+                      {medicinesList.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} • {m.manufacturer} (Schedule {m.schedule})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <form onSubmit={handleContinueToBatch} className="space-y-4 text-xs">
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">
+                      Medicine Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Paracetamol 500mg, Amoxicillin 250mg, Cefixime..."
+                      value={newMedData.name}
+                      onChange={(e) => {
+                        const nameVal = e.target.value;
+                        const autoDetected = autoClassifySchedule(nameVal);
+                        setNewMedData({
+                          ...newMedData,
+                          name: nameVal,
+                          schedule: autoDetected,
+                        });
+                      }}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 focus:border-teal-600 font-medium"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">
+                      Manufacturer *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Cipla Ltd"
+                      value={newMedData.manufacturer}
+                      onChange={(e) =>
+                        setNewMedData({ ...newMedData, manufacturer: e.target.value })
+                      }
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 focus:border-teal-600 font-medium"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-700 font-bold mb-1">
+                        Barcode (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 8901234567890"
+                        value={newMedData.barcode}
+                        onChange={(e) =>
+                          setNewMedData({ ...newMedData, barcode: e.target.value })
+                        }
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:border-teal-600 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-700 font-bold mb-1">
+                        Drug Schedule
+                      </label>
+                      <select
+                        value={newMedData.schedule}
+                        onChange={(e) =>
+                          setNewMedData({ ...newMedData, schedule: e.target.value })
+                        }
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:border-teal-600 font-semibold"
+                      >
+                        <option value="OTC">OTC (Over The Counter)</option>
+                        <option value="H">Schedule H</option>
+                        <option value="H1">Schedule H1</option>
+                        <option value="X">Schedule X</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-700 font-bold mb-1">
+                        Unit Selling Price (₹)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="e.g. 15.00"
+                        value={newMedData.unitPrice}
+                        onChange={(e) =>
+                          setNewMedData({ ...newMedData, unitPrice: e.target.value })
+                        }
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:border-teal-600 font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-700 font-bold mb-1">
+                        Reorder Threshold
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="e.g. 10"
+                        value={newMedData.reorderThreshold}
+                        onChange={(e) =>
+                          setNewMedData({
+                            ...newMedData,
+                            reorderThreshold: e.target.value,
+                          })
+                        }
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:border-teal-600 font-medium"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-700 font-bold text-white text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <span>Continue to Batch Details</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </form>
+              </div>
+            ) : (
+              /* ── STEP 2: Batch Details ── */
+              <form onSubmit={handleAddMedicine} className="space-y-4 text-xs">
+                {/* Medicine Summary Card */}
+                <div className="p-3.5 rounded-2xl bg-teal-50/70 border border-teal-200/80 space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-extrabold text-[#1E3A5F] text-sm">
+                        {newMedData.name}
+                      </span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-teal-200 text-teal-900">
+                        Schedule {newMedData.schedule}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowNewMedBatchDetails(false)}
+                      className="text-[11px] font-bold text-teal-700 hover:text-teal-900 underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Edit Details</span>
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-slate-600 text-[11px] font-medium pt-1 border-t border-teal-200/60">
+                    <p>
+                      <strong>Manufacturer:</strong> {newMedData.manufacturer}
+                    </p>
+                    <p>
+                      <strong>Barcode:</strong>{" "}
+                      {newMedData.barcode || "None (Manual Non-Barcoded)"}
+                    </p>
+                    <p>
+                      <strong>Selling Price:</strong> ₹
+                      {newMedData.unitPrice ? parseFloat(newMedData.unitPrice).toFixed(2) : "0.00"}/unit
+                    </p>
+                    <p>
+                      <strong>Reorder Alert:</strong> At ≤ {newMedData.reorderThreshold || "10"} units
+                    </p>
+                  </div>
+                </div>
+
+                {/* Batch Details Inputs */}
+                <div className="border-t border-slate-200 pt-1 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-extrabold text-[#1E3A5F] uppercase tracking-wider flex items-center gap-1.5">
+                      <Boxes className="w-3.5 h-3.5 text-teal-600" />
+                      <span>Initial Batch Details</span>
+                    </h4>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-teal-100 text-teal-800">
+                      Step 2 of 2
+                    </span>
+                  </div>
+
+                  <BatchDetailsSection
+                    data={newBatchData}
+                    onChange={(field, val) =>
+                      setNewBatchData((prev) => ({ ...prev, [field]: val }))
+                    }
+                    supplierRequired={false}
+                    supplierPlaceholder={
+                      newMedData.manufacturer
+                        ? `e.g. ${newMedData.manufacturer} Distributor`
+                        : "e.g. Cipla Distributor / Local Pharma Vendor"
+                    }
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowNewMedBatchDetails(false)}
+                    className="flex-1 py-3 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    <span>Back</span>
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={actionLoading}
+                    className="flex-[2] py-3 rounded-xl bg-teal-600 hover:bg-teal-700 font-bold text-white text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <span>{actionLoading ? "Saving..." : "Save Medicine & Add Batch"}</span>
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
