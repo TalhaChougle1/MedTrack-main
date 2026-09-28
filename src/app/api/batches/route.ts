@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { batches, medicines, auditLogs } from "@/lib/db/schema";
-import { eq, and, asc, gt, sql } from "drizzle-orm";
+import { eq, and, asc, gt } from "drizzle-orm";
 import { recordStockRecovery, getShopAlertSettings } from "@/lib/emailService";
+import { persistCurrentDatabaseState } from "@/lib/db/storeSync";
 
 export async function GET() {
   const session = await getAuthSession();
@@ -101,6 +102,12 @@ export async function POST(req: Request) {
       med.unitPrice = parsedCostPrice;
     }
 
+    let normalizedExpiry = expiryDate.trim();
+    if (/^\d{2}[\/\-]\d{2}[\/\-]\d{4}$/.test(normalizedExpiry)) {
+      const parts = normalizedExpiry.split(/[\/\-]/);
+      normalizedExpiry = `${parts[2]}-${parts[1]}-${parts[0]}`;
+    }
+
     const todayStr = new Date().toISOString().split("T")[0];
 
     const [newBatch] = await db
@@ -110,7 +117,7 @@ export async function POST(req: Request) {
         medicineId: med.id,
         batchNumber: batchNumber.trim(),
         quantity: qty,
-        expiryDate: expiryDate.trim(),
+        expiryDate: normalizedExpiry,
         supplier: supplier.trim(),
         costPrice: parseFloat(costPrice) || 0,
         receivedDate: receivedDate ? receivedDate.trim() : todayStr,
@@ -132,6 +139,8 @@ export async function POST(req: Request) {
         supplier: newBatch.supplier,
       }),
     });
+
+    await persistCurrentDatabaseState();
 
     // After stocking in, check if the medicine is now above its threshold.
     // If so, insert a RECOVERY marker so the next stock drop triggers a fresh

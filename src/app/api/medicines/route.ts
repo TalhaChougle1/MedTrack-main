@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { medicines, batches, auditLogs, shops } from "@/lib/db/schema";
-import { eq, and, sql, like } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { autoClassifySchedule } from "@/lib/scheduleClassifier";
 import { syncAndRestoreDatabase, persistCurrentDatabaseState } from "@/lib/db/storeSync";
 
@@ -125,7 +125,7 @@ export async function POST(req: Request) {
       })
       .returning();
 
-    // Audit log
+    // Audit log for medicine
     await db.insert(auditLogs).values({
       shopId,
       userId,
@@ -140,7 +140,80 @@ export async function POST(req: Request) {
       }),
     });
 
-    return NextResponse.json(newMed, { status: 201 });
+    // Optional initial batch creation
+    const batchNumber = body.batchNumber || body.batch?.batchNumber;
+    const quantity = body.quantity !== undefined ? body.quantity : body.batch?.quantity;
+    const expiryDate = body.expiryDate || body.batch?.expiryDate;
+    const costPrice = body.costPrice !== undefined ? body.costPrice : body.batch?.costPrice;
+    const supplier = body.supplier || body.batch?.supplier;
+    const receivedDate = body.receivedDate || body.batch?.receivedDate;
+
+    let createdBatch = null;
+
+    if (batchNumber && expiryDate && quantity !== undefined) {
+      const qty = parseInt(quantity);
+      if (isNaN(qty) || qty < 0) {
+        return NextResponse.json(
+          { error: "Quantity must be a non-negative integer." },
+          { status: 400 }
+        );
+      }
+
+      let normalizedExpiry = String(expiryDate).trim();
+      if (/^\d{2}[\/\-]\d{2}[\/\-]\d{4}$/.test(normalizedExpiry)) {
+        const parts = normalizedExpiry.split(/[\/\-]/);
+        normalizedExpiry = `${parts[2]}-${parts[1]}-${parts[0]}`;
+      }
+
+      const parsedCostPrice = parseFloat(costPrice) || 0;
+      const finalSupplier = (supplier && String(supplier).trim())
+        ? String(supplier).trim()
+        : (newMed.manufacturer || "Direct Vendor");
+
+      const todayStr = new Date().toISOString().split("T")[0];
+
+      const [newBatch] = await db
+        .insert(batches)
+        .values({
+          shopId,
+          medicineId: newMed.id,
+          batchNumber: String(batchNumber).trim(),
+          quantity: qty,
+          expiryDate: normalizedExpiry,
+          supplier: finalSupplier,
+          costPrice: parsedCostPrice,
+          receivedDate: receivedDate ? String(receivedDate).trim() : todayStr,
+        })
+        .returning();
+
+      createdBatch = newBatch;
+
+      // If unit price was 0 and cost price > 0, update medicine unitPrice
+      if (newMed.unitPrice === 0 && parsedCostPrice > 0) {
+        await db.update(medicines).set({ unitPrice: parsedCostPrice }).where(eq(medicines.id, newMed.id));
+        newMed.unitPrice = parsedCostPrice;
+      }
+
+      // Audit log for initial batch
+      await db.insert(auditLogs).values({
+        shopId,
+        userId,
+        action: "STOCK_IN",
+        entityType: "batch",
+        entityId: newBatch.id,
+        detail: JSON.stringify({
+          medicineName: newMed.name,
+          batchNumber: newBatch.batchNumber,
+          quantity: newBatch.quantity,
+          expiryDate: newBatch.expiryDate,
+          supplier: newBatch.supplier,
+        }),
+      });
+    }
+
+    await persistCurrentDatabaseState();
+
+    return NextResponse.json({ ...newMed, batch: createdBatch }, { status: 201 });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to add medicine";
     return NextResponse.json({ error: msg }, { status: 500 });

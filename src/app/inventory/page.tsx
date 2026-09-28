@@ -21,6 +21,103 @@ import {
 import { autoClassifySchedule } from "@/lib/scheduleClassifier";
 import BatchDispenseModal from "@/components/BatchDispenseModal";
 
+// ─── Shared Batch Form Section ───────────────────────────────────────────────
+function BatchDetailsSection({
+  data,
+  onChange,
+  supplierRequired = true,
+  supplierPlaceholder,
+}: {
+  data: {
+    batchNumber: string;
+    quantity: string;
+    expiryDate: string;
+    costPrice: string;
+    supplier?: string;
+  };
+  onChange: (field: string, value: string) => void;
+  supplierRequired?: boolean;
+  supplierPlaceholder?: string;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-slate-700 font-bold mb-1">
+            1. Batch Number * (Manual)
+          </label>
+          <input
+            type="text"
+            required
+            placeholder="e.g. BATCH-2026-08"
+            value={data.batchNumber}
+            onChange={(e) => onChange("batchNumber", e.target.value)}
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 font-mono focus:border-teal-600 font-bold"
+          />
+        </div>
+        <div>
+          <label className="block text-slate-700 font-bold mb-1">
+            2. Quantity Received * (Manual)
+          </label>
+          <input
+            type="number"
+            required
+            min="1"
+            placeholder="e.g. 100"
+            value={data.quantity}
+            onChange={(e) => onChange("quantity", e.target.value)}
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:border-teal-600 font-medium"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-slate-700 font-bold mb-1">
+            3. Expiry Date * (Manual)
+          </label>
+          <input
+            type="date"
+            required
+            value={data.expiryDate}
+            onChange={(e) => onChange("expiryDate", e.target.value)}
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:border-teal-600 font-medium"
+          />
+        </div>
+        <div>
+          <label className="block text-slate-700 font-bold mb-1">
+            4. Cost Price Per Unit (₹) (Manual)
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            required
+            placeholder="e.g. 12.50"
+            value={data.costPrice}
+            onChange={(e) => onChange("costPrice", e.target.value)}
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:border-teal-600 font-medium"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-slate-700 font-bold mb-1">
+          5. Supplier Name {supplierRequired ? "* (Manual)" : "(Optional / Auto-filled)"}
+        </label>
+        <input
+          type="text"
+          required={supplierRequired}
+          placeholder={supplierPlaceholder || "e.g. Cipla Distributor / Local Pharma Vendor"}
+          value={data.supplier || ""}
+          onChange={(e) => onChange("supplier", e.target.value)}
+          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 focus:border-teal-600 font-medium"
+        />
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 function InventoryInner() {
   const { data: session, status } = useSession();
@@ -245,6 +342,48 @@ function InventoryInner() {
 
   const handleAddMedicine = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!newMedData.name.trim()) {
+      setErrorMsg("Medicine name is required.");
+      return;
+    }
+    if (!newMedData.manufacturer.trim()) {
+      setErrorMsg("Manufacturer is required.");
+      return;
+    }
+    if (!newBatchData.batchNumber.trim()) {
+      setErrorMsg("Batch number is required.");
+      return;
+    }
+    if (!newBatchData.expiryDate) {
+      setErrorMsg("Expiry date is required.");
+      return;
+    }
+    const qty = parseInt(newBatchData.quantity, 10);
+    if (isNaN(qty) || qty <= 0) {
+      setErrorMsg("Quantity must be greater than 0.");
+      return;
+    }
+    const cost = parseFloat(newBatchData.costPrice);
+    if (newBatchData.costPrice === "" || isNaN(cost) || cost < 0) {
+      setErrorMsg("Purchase price must be a valid number (0 or greater).");
+      return;
+    }
+    if (newMedData.unitPrice !== "" && (isNaN(parseFloat(newMedData.unitPrice)) || parseFloat(newMedData.unitPrice) < 0)) {
+      setErrorMsg("Unit selling price must be a valid number (0 or greater).");
+      return;
+    }
+    if (newMedData.reorderThreshold !== "" && (isNaN(parseInt(newMedData.reorderThreshold, 10)) || parseInt(newMedData.reorderThreshold, 10) < 0)) {
+      setErrorMsg("Reorder threshold must be 0 or greater.");
+      return;
+    }
+
+    let normalizedExp = newBatchData.expiryDate.trim();
+    if (/^\d{2}[\/\-]\d{2}[\/\-]\d{4}$/.test(normalizedExp)) {
+      const parts = normalizedExp.split(/[\/\-]/);
+      normalizedExp = `${parts[2]}-${parts[1]}-${parts[0]}`;
+    }
+
     setActionLoading(true);
     setErrorMsg("");
     setSuccessMsg("");
@@ -252,13 +391,20 @@ function InventoryInner() {
       const res = await fetch("/api/medicines", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newMedData),
+        body: JSON.stringify({
+          ...newMedData,
+          batchNumber: newBatchData.batchNumber.trim(),
+          quantity: qty,
+          expiryDate: normalizedExp,
+          supplier: newBatchData.supplier.trim() || newMedData.manufacturer.trim() || "Direct Vendor",
+          costPrice: cost,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
         setErrorMsg(data.error || "Failed to add medicine.");
       } else {
-        setSuccessMsg(`Medicine '${data.name}' added successfully!`);
+        setSuccessMsg(`Medicine '${data.name}' and initial batch '${newBatchData.batchNumber.trim()}' registered successfully!`);
         setAddMedOpen(false);
         setNewMedData({
           name: "",
@@ -268,7 +414,15 @@ function InventoryInner() {
           unitPrice: "",
           reorderThreshold: "10",
         });
+        setNewBatchData({
+          batchNumber: "",
+          quantity: "",
+          expiryDate: "",
+          supplier: "",
+          costPrice: "",
+        });
         fetchInventoryData();
+        window.dispatchEvent(new Event("medtrack:refresh"));
       }
     } catch {
       setErrorMsg("Network error adding medicine.");
@@ -284,12 +438,19 @@ function InventoryInner() {
     setErrorMsg("");
     setSuccessMsg("");
     try {
+      let normalizedExp = newBatchData.expiryDate.trim();
+      if (/^\d{2}[\/\-]\d{2}[\/\-]\d{4}$/.test(normalizedExp)) {
+        const parts = normalizedExp.split(/[\/\-]/);
+        normalizedExp = `${parts[2]}-${parts[1]}-${parts[0]}`;
+      }
+
       const res = await fetch("/api/batches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           medicineId: selectedMedForBatch.id,
           ...newBatchData,
+          expiryDate: normalizedExp,
         }),
       });
       const data = await res.json();
@@ -306,6 +467,7 @@ function InventoryInner() {
           costPrice: "",
         });
         fetchInventoryData();
+        window.dispatchEvent(new Event("medtrack:refresh"));
       }
     } catch {
       setErrorMsg("Network error adding batch.");
@@ -344,6 +506,21 @@ function InventoryInner() {
           onClick={() => {
             setErrorMsg("");
             setSuccessMsg("");
+            setNewMedData({
+              name: "",
+              manufacturer: "",
+              barcode: "",
+              schedule: "OTC",
+              unitPrice: "",
+              reorderThreshold: "10",
+            });
+            setNewBatchData({
+              batchNumber: "",
+              quantity: "",
+              expiryDate: "",
+              supplier: "",
+              costPrice: "",
+            });
             setAddMedOpen(true);
           }}
           className="px-4 py-2.5 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
@@ -726,13 +903,30 @@ function InventoryInner() {
       {/* ── Modal: Add New Medicine ── */}
       {addMedOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">
-          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-md p-4 sm:p-6 space-y-4 sm:space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-lg p-4 sm:p-6 space-y-4 sm:space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <h3 className="text-lg font-extrabold text-[#1E3A5F]">
                 Register New Medicine
               </h3>
               <button
-                onClick={() => setAddMedOpen(false)}
+                onClick={() => {
+                  setAddMedOpen(false);
+                  setNewMedData({
+                    name: "",
+                    manufacturer: "",
+                    barcode: "",
+                    schedule: "OTC",
+                    unitPrice: "",
+                    reorderThreshold: "10",
+                  });
+                  setNewBatchData({
+                    batchNumber: "",
+                    quantity: "",
+                    expiryDate: "",
+                    supplier: "",
+                    costPrice: "",
+                  });
+                }}
                 className="text-slate-400 hover:text-slate-700 cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -879,12 +1073,38 @@ function InventoryInner() {
                 </div>
               </div>
 
+              {/* Batch Details Section */}
+              <div className="border-t border-slate-200 pt-3.5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-extrabold text-[#1E3A5F] uppercase tracking-wider flex items-center gap-1.5">
+                    <Boxes className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Batch Details</span>
+                  </h4>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-teal-100 text-teal-800">
+                    Initial Stock Batch
+                  </span>
+                </div>
+
+                <BatchDetailsSection
+                  data={newBatchData}
+                  onChange={(field, val) =>
+                    setNewBatchData((prev) => ({ ...prev, [field]: val }))
+                  }
+                  supplierRequired={false}
+                  supplierPlaceholder={
+                    newMedData.manufacturer
+                      ? `e.g. ${newMedData.manufacturer} Distributor`
+                      : "e.g. Cipla Distributor / Local Pharma Vendor"
+                  }
+                />
+              </div>
+
               <button
                 type="submit"
                 disabled={actionLoading}
                 className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-700 font-bold text-white text-xs shadow-md transition-all cursor-pointer"
               >
-                Save Medicine
+                {actionLoading ? "Saving..." : "Save Medicine & Add Batch"}
               </button>
             </form>
           </div>
@@ -962,94 +1182,20 @@ function InventoryInner() {
             </div>
 
             <form onSubmit={handleAddBatch} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">
-                    1. Batch Number * (Manual)
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. BATCH-2026-08"
-                    value={newBatchData.batchNumber}
-                    onChange={(e) =>
-                      setNewBatchData({ ...newBatchData, batchNumber: e.target.value })
-                    }
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 font-mono focus:border-teal-600 font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">
-                    2. Quantity Received * (Manual)
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    placeholder="e.g. 100"
-                    value={newBatchData.quantity}
-                    onChange={(e) =>
-                      setNewBatchData({ ...newBatchData, quantity: e.target.value })
-                    }
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:border-teal-600 font-medium"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">
-                    3. Expiry Date * (Manual)
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={newBatchData.expiryDate}
-                    onChange={(e) =>
-                      setNewBatchData({ ...newBatchData, expiryDate: e.target.value })
-                    }
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:border-teal-600 font-medium"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">
-                    4. Cost Price Per Unit (₹) (Manual)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="e.g. 12.50"
-                    value={newBatchData.costPrice}
-                    onChange={(e) =>
-                      setNewBatchData({ ...newBatchData, costPrice: e.target.value })
-                    }
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:border-teal-600 font-medium"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">
-                  5. Supplier Name * (Manual)
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Cipla Distributor / Local Pharma Vendor"
-                  value={newBatchData.supplier}
-                  onChange={(e) =>
-                    setNewBatchData({ ...newBatchData, supplier: e.target.value })
-                  }
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 focus:border-teal-600 font-medium"
-                />
-              </div>
+              <BatchDetailsSection
+                data={newBatchData}
+                onChange={(field, val) =>
+                  setNewBatchData((prev) => ({ ...prev, [field]: val }))
+                }
+                supplierRequired={true}
+              />
 
               <button
                 type="submit"
                 disabled={actionLoading}
                 className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-700 font-bold text-white text-xs shadow-md cursor-pointer"
               >
-                Confirm Batch Addition
+                {actionLoading ? "Adding..." : "Confirm Batch Addition"}
               </button>
             </form>
           </div>
